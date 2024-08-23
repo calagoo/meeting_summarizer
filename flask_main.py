@@ -1,7 +1,8 @@
 """Flask app to stream data to the client using Server-Sent Events (SSE)."""
 import time
-from flask import Flask, render_template, jsonify, Response
 import threading
+from icecream import ic
+from flask import Flask, render_template, jsonify, Response
 from main import Summarizer
 
 class StreamingApp:
@@ -12,6 +13,7 @@ class StreamingApp:
 
         self.streaming = False
         self.setup_routes()
+        self.stop_event = threading.Event()
 
     def setup_routes(self):
         """Setup the routes for the Flask app."""
@@ -34,15 +36,17 @@ class StreamingApp:
 
         @self.app.route('/stop', methods=['POST'])
         def stop_stream():
+            print("Stopping... CALLED")
             if self.streaming:
                 self.streaming = False
+                self.stop_event.set()
                 self.stop_streaming()
                 return jsonify({'status': 'stopped'})
             return jsonify({'status': 'already stopped'})
 
     def mrmin(self):
         """Generator function to stream data to the client."""
-        
+
         # Start the summarizer thread in a separate thread to avoid blocking
         summarizer_thread = threading.Thread(target=self.summarizer.thread_starting, args=(False,))
         summarizer_thread.daemon = True
@@ -52,22 +56,27 @@ class StreamingApp:
 
         print("Streaming data...")
 
-        try:
-            while self.streaming:
-                if not self.summarizer.result_queue.empty():
-                    data = self.summarizer.result_queue.get()
-                    yield f"data: {data}\n\n"  # Proper SSE format
-                else:
-                    time.sleep(0.1)
-        finally:
-            self.summarizer.stop_listening()  # Signal the summarizer to stop listening
-            summarizer_thread.join()  # Ensure the thread is properly closed
-            yield "data: Streaming stopped.\n\n"
+        while not self.stop_event.is_set():
+            if not self.summarizer.result_queue.empty():
+                data = self.summarizer.result_queue.get()
+                ic(self.stop_event.is_set())
+                yield f"data: {data}\n\n"  # Proper SSE format
+            else:
+                time.sleep(0.1)
+        self.summarizer.stop_listening()
+        txt, tokens = self.summarizer.clean_up_notes()  # Clean up the notes
+        txt = txt.replace("\n", "<br>")  # Replace newlines with HTML line breaks
+        print("Closing...")
+        print("Final text:", txt)
+        yield f"data: FINAL_{txt}\n\n"
+        yield "data: Streaming stopped.\n\n"  # Indicate that streaming has stopped
+        summarizer_thread.join()  # Wait for the thread to finish
 
     def stop_streaming(self):
         """Stop the streaming process."""
         self.summarizer.stop_listening()
         self.streaming = False
+        self.stop_event.set()  # Signal the event to stop the loop
         print("Closing...")
 
     def run(self):

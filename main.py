@@ -63,8 +63,9 @@ class Summarizer:
                 if process_audio:
                     data = self.text_processing()
                 else:
-                    data = {"text": self.text, "tokens": 0}
-                print(data["text"])
+                    # If we're not processing the audio, just return the recognized text
+                    self.total_text += self.text + "\n"
+                    data = {"text": self.text, "total_text":self.total_text, "tokens": 0}
                 self.result_queue.put(data)
 
             except sr.UnknownValueError:
@@ -105,13 +106,6 @@ class Summarizer:
     def stop_listening(self):
         """Signal the listening thread to stop."""
         self.stop_event.set()
-
-    # def thread_stopping(self):
-    #     """Stops the audio recognition and processing threads."""
-    #     print("Stopping audio recognition and processing threads...")
-    #     self.audio_queue.join()  # Block until all current audio processing jobs are done
-    #     self.audio_queue.put(None)  # Tell the recognize_thread to stop
-    #     self.recognize_thread.join()  # Wait for the recognize_thread to actually stop
 
     def text_processing(self):
         """Processes the recognized text, and returns a summary of the text."""
@@ -156,7 +150,7 @@ class Summarizer:
         self.tokens += resp.usage.total_tokens
         self.text = resp.choices[0].message.content
 
-        data = {"text": self.text, "tokens": self.tokens}
+        data = {"text": self.text, "total_text": self.total_text, "tokens": self.tokens}
         return data
         # os.system("cls")
         # print(
